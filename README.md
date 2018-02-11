@@ -41,7 +41,7 @@ show value below from CloudFormation Output.
 aws cloudformation describe-stacks --stack-name PostSlackCfn
 ```
 
-show like below. get <api key id> and <post url>
+show like below. get `<api key id>` and `<post url>`
 ```
 {
     "Stacks": [
@@ -79,7 +79,7 @@ get api key value
 aws apigateway get-api-key --api-key <your api key id> --include-value
 ```
 
-show like below. get <your api key>
+show like below. get `<your api key>`
 ```
 {
     "description": "CloudFormation API Key V1",
