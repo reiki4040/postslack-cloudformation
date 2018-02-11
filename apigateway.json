@@ -1,0 +1,182 @@
+{
+  "AWSTemplateFormatVersion" : "2010-09-09",
+  "Resources" : {
+    "PostSlackLambda": {
+      "Type": "AWS::Lambda::Function",
+      "Properties": {
+        "Code": {
+          "ZipFile": { "Fn::Join": ["\n", [
+"console.log('Loading function');",
+"",
+"const https = require('https');",
+"const url = require('url');",
+"const slack_url = process.env.SLACK_WEBHOOK_URL;",
+"const slack_req_opts = url.parse(slack_url);",
+"slack_req_opts.method = 'POST';",
+"slack_req_opts.headers = {'Content-Type': 'application/json'};",
+"",
+"exports.handler = function(event, context) {",
+"  if (event.text) {",
+"    var req = https.request(slack_req_opts, function (res) {",
+"      if (res.statusCode === 200) {",
+"        context.succeed('posted to slack');",
+"      } else {",
+"        context.fail('status code: ' + res.statusCode);",
+"      }",
+"    });",
+"",
+"    req.on('error', function(e) {",
+"      console.log('problem with request: ' + e.message);",
+"      context.fail(e.message);",
+"    });",
+"",
+"    var message = event.text;",
+"",
+"    req.write(JSON.stringify({text: message}));",
+"",
+"    req.end();",
+"  }",
+"};"
+            ]]}
+        },
+        "Description": "post slack function",
+        "FunctionName": "PostSlackLambda",
+        "Handler": "index.handler",
+        "Role": { "Fn::GetAtt": ["LambdaExecutionRole", "Arn"]},
+        "Runtime": "nodejs4.3",
+        "Environment": {
+          "Variables": {"SLACK_WEBHOOK_URL":"none"}
+        }
+      }
+    },
+	"LambdaExecutionRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [{
+            "Effect": "Allow",
+            "Principal": { "Service": ["lambda.amazonaws.com"] },
+            "Action": ["sts:AssumeRole"]
+          }]
+        },
+        "ManagedPolicyArns": ["arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"]
+      }
+    },
+    "LambdaPermission": {
+      "Type": "AWS::Lambda::Permission",
+      "Properties": {
+        "Action": "lambda:invokeFunction",
+        "FunctionName": {"Fn::GetAtt": ["PostSlackLambda", "Arn"]},
+        "Principal": "apigateway.amazonaws.com",
+        "SourceArn": {"Fn::Join": ["", ["arn:aws:execute-api:", {"Ref": "AWS::Region"}, ":", {"Ref": "AWS::AccountId"}, ":", {"Ref": "PostSlackCfn"}, "/*"]]}
+      }
+    },
+    "PostSlackCfn" : {
+      "Type" : "AWS::ApiGateway::RestApi",
+      "Properties" : {
+        "Description" : "This is Sample post slack API",
+        "Name" : "post-slack-cfn"
+      }
+    },
+    "SampleMethod" : {
+      "Type" : "AWS::ApiGateway::Method",
+      "Properties" : {
+        "RestApiId" : { "Ref" : "PostSlackCfn" },
+        "ResourceId" : { "Fn::GetAtt": ["PostSlackCfn", "RootResourceId"] },
+        "HttpMethod" : "POST",
+        "AuthorizationType" : "NONE",
+        "ApiKeyRequired": true,
+        "Integration" : {
+          "Type" : "AWS",
+          "IntegrationHttpMethod": "POST",
+          "Uri": {"Fn::Join": ["",
+            ["arn:aws:apigateway:", {"Ref": "AWS::Region"}, ":lambda:path/2015-03-31/functions/", {"Fn::GetAtt": ["PostSlackLambda", "Arn"]}, "/invocations"]
+          ]},
+          "RequestTemplates" : {
+            "application/json": "{ \"text\": $input.json('$.message') }"
+          },
+          "IntegrationResponses" : [
+            { "StatusCode" : "200" }
+          ]
+        },
+        "MethodResponses" : [
+          { "StatusCode" : "200" }
+        ]
+      }
+    },
+    "PostSlackCfnDeployment": {
+      "Type": "AWS::ApiGateway::Deployment",
+      "DependsOn" : ["SampleMethod"],
+      "Properties": {
+        "RestApiId": { "Ref": "PostSlackCfn" },
+        "Description": "dev deployment",
+        "StageName": "DummyStage"
+      }
+    },
+    "DevStage": {
+      "Type": "AWS::ApiGateway::Stage",
+      "Properties": {
+          "StageName": "dev",
+          "Description": "dev Stage",
+          "RestApiId": {
+              "Ref": "PostSlackCfn"
+          },
+          "DeploymentId": {
+              "Ref": "PostSlackCfnDeployment"
+          },
+          "MethodSettings": [
+              {
+                  "ResourcePath": "/",
+                  "HttpMethod": "POST",
+                  "MetricsEnabled": "true",
+                  "DataTraceEnabled": "true"
+              }
+          ]
+       }
+    },
+	"PostSlackApiKey": {
+	  "Type": "AWS::ApiGateway::ApiKey",
+	  "Properties": {
+	      "Name": "PostSlackCfnApiKey",
+	      "Description": "CloudFormation API Key V1",
+	      "Enabled": "true"
+	   }
+	},
+    "PostSlackCfnPlan" : {
+      "Type" : "AWS::ApiGateway::UsagePlan",
+	  "DependsOn": ["PostSlackApiKey"],
+      "Properties" : {
+        "ApiStages" : [ {"ApiId" : { "Ref" : "PostSlackCfn" }, "Stage" : { "Ref" : "DevStage" }} ],
+        "Description" : "post slack cfn usage plan",
+        "Quota" : {
+          "Limit" : 5000,
+          "Period" : "MONTH"
+        },
+        "Throttle" : {
+          "BurstLimit" : 200,
+          "RateLimit" : 100
+        },
+        "UsagePlanName" : "post-slack-cfn-plan"
+      }
+    },
+    "PostSlackCfnPlanKey" : {
+      "Type": "AWS::ApiGateway::UsagePlanKey",
+      "Properties": {
+        "KeyId" : {"Ref" : "PostSlackApiKey"},
+        "KeyType" : "API_KEY",
+        "UsagePlanId" : {"Ref" : "PostSlackCfnPlan"}
+      }
+    }
+  },
+  "Outputs": {
+    "ApiKey": {
+      "Description": "api key",
+      "Value": {"Ref": "PostSlackApiKey"}
+    },
+	"PostUrl": {
+      "Description": "post url",
+      "Value": {"Fn::Join": ["", ["https://", {"Ref": "PostSlackCfn"}, ".execute-api.", {"Ref": "AWS::Region"}, ".amazonaws.com/", {"Ref": "DevStage"}, "/"]]}
+	}
+  }
+}
