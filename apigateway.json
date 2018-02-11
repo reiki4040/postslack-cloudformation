@@ -170,8 +170,8 @@
     }
   },
   "Outputs": {
-    "ApiKey": {
-      "Description": "api key",
+    "ApiKeyId": {
+      "Description": "api key id",
       "Value": {"Ref": "PostSlackApiKey"}
     },
 	"PostUrl": {
